@@ -1,0 +1,41 @@
+name: Github WorkFlow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-vps:
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Install SSH and Set Password
+        run: |
+          sudo apt update && sudo apt install -y openssh-server curl
+          sudo service ssh start
+
+          # Set a password for the 'runner' user
+          echo "runner:MySecurePass123" | sudo chpasswd
+
+          # Allow password authentication in SSH
+          sudo sed -i 's/^#PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo systemctl restart ssh
+
+      - name: Install Ngrok and Start Tunnel
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install -y ngrok jq
+
+          # Start Ngrok tunnel for SSH
+          ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+          nohup ngrok tcp 22 --log=stdout > ngrok.log 2>&1 &
+
+      - name: Display SSH Connection Info
+        run: |
+          sleep 10  # Give ngrok time to start
+          TUNNEL_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "SSH Connection: ssh runner@${TUNNEL_URL#tcp://}"
+
+      - name: Keep Runner Alive
+        run: sleep infinity
